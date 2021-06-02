@@ -61,22 +61,26 @@ func (c *leaseController) Sync(holderIdentity string, ownerReferences ...metav1.
 	}
 	leaseClient := gardenClient.Kubernetes().CoordinationV1().Leases(c.namespace)
 
-	return c.tryUpdateOrCreateLease(ctx, leaseClient, holderIdentity, ownerReferences...)
+	return c.tryCreateOrUpdateLease(ctx, leaseClient, holderIdentity, ownerReferences...)
 }
 
-// tryUpdateOrCreateLease updates or creates the lease if it does not exist.
-func (c *leaseController) tryUpdateOrCreateLease(ctx context.Context, leaseClient coordclientset.LeaseInterface, holderIdentity string, ownerReferences ...metav1.OwnerReference) error {
-	lease, err := leaseClient.Get(ctx, holderIdentity, kubernetes.DefaultGetOptions())
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			_, err2 := leaseClient.Create(ctx, c.newLease(nil, holderIdentity, ownerReferences...), kubernetes.DefaultCreateOptions())
+// tryCreateOrUpdateLease updates or creates the lease if it does not exist.
+func (c *leaseController) tryCreateOrUpdateLease(ctx context.Context, leaseClient coordclientset.LeaseInterface, holderIdentity string, ownerReferences ...metav1.OwnerReference) error {
+	if _, err := leaseClient.Create(ctx, c.newLease(nil, holderIdentity, ownerReferences...), kubernetes.DefaultCreateOptions()); err != nil {
+		if !apierrors.IsAlreadyExists(err) {
+			return err
+		}
+
+		lease, err2 := leaseClient.Get(ctx, holderIdentity, kubernetes.DefaultGetOptions())
+		if err2 != nil {
 			return err2
 		}
-		return err
+
+		_, err3 := leaseClient.Update(ctx, c.newLease(lease, holderIdentity, ownerReferences...), kubernetes.DefaultUpdateOptions())
+		return err3
 	}
 
-	_, err = leaseClient.Update(ctx, c.newLease(lease, holderIdentity, ownerReferences...), kubernetes.DefaultUpdateOptions())
-	return err
+	return nil
 }
 
 // newLease constructs a new lease if base is nil, or returns a copy of base

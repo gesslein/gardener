@@ -76,40 +76,39 @@ var _ = Describe("LeaseController", func() {
 	})
 
 	Describe("#leaseSync", func() {
+		var controller Controller
+
+		BeforeEach(func() {
+			controller = NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
+		})
+
 		It("should fail if get garden client fails", func() {
 			fakeClientMap = fakeclientmap.NewClientMap()
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			err := leaseController.Sync(holderName)
-
-			Expect(err).To(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(Succeed())
 		})
 
 		It("should not fail as clientset is set", func() {
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			err := leaseController.Sync(holderName)
-
-			Expect(err).NotTo(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(Succeed())
 		})
 
 		It("should create new lease without ownerRef", func() {
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-
-			Expect(leaseController.Sync(holderName)).NotTo(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(Succeed())
 
 			lease, err := k8sClientSet.CoordinationV1().Leases(testLeaseNamespace).Get(context.Background(), holderName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
+
 			Expect(lease).ShouldNot(BeNil())
 			Expect(lease.Spec.RenewTime).To(BeEquivalentTo(&metav1.MicroTime{Time: fakeNowFunc()}))
 			Expect(lease.OwnerReferences).Should(BeEmpty())
 		})
 
 		It("should create new lease with ownerRef", func() {
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			Expect(leaseController.Sync(holderName, ownerRef)).NotTo(HaveOccurred())
+			Expect(controller.Sync(holderName, ownerRef)).NotTo(HaveOccurred())
 
 			lease, err := k8sClientSet.CoordinationV1().Leases(testLeaseNamespace).Get(context.Background(), holderName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
+
 			Expect(lease).ShouldNot(BeNil())
 			Expect(lease.Spec.RenewTime).To(BeEquivalentTo(&metav1.MicroTime{Time: fakeNowFunc()}))
 			Expect(lease.OwnerReferences).Should(ContainElement(ownerRef))
@@ -120,28 +119,24 @@ var _ = Describe("LeaseController", func() {
 				return true, nil, fmt.Errorf("error")
 			})
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-
-			Expect(leaseController.Sync(holderName)).To(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(HaveOccurred())
 		})
 
-		It("should return error, if retreiving lease returns error", func() {
+		It("should return error, if retrieving lease returns error", func() {
+			Expect(k8sClientSet.Tracker().Add(lease)).To(Succeed())
 			k8sClientSet.PrependReactor("get", "leases", func(action k8stesting.Action) (bool, runtime.Object, error) {
 				return true, nil, fmt.Errorf("error")
 			})
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-
-			Expect(leaseController.Sync(holderName)).To(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(HaveOccurred())
 		})
 
 		It("should update lease time if the lease exists", func() {
 			fakeTime := &metav1.MicroTime{Time: time.Date(2020, time.April, 1, 1, 1, 1, 1, time.Local)}
 			lease.Spec.RenewTime = fakeTime
-			Expect(k8sClientSet.Tracker().Add(lease)).NotTo(HaveOccurred())
+			Expect(k8sClientSet.Tracker().Add(lease)).To(Succeed())
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			Expect(leaseController.Sync(holderName)).NotTo(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(Succeed())
 
 			actualLease, err := k8sClientSet.CoordinationV1().Leases(testLeaseNamespace).Get(context.Background(), holderName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
@@ -156,10 +151,7 @@ var _ = Describe("LeaseController", func() {
 				return true, nil, fmt.Errorf("error")
 			})
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			err := leaseController.Sync(holderName)
-
-			Expect(err).To(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(HaveOccurred())
 		})
 
 		It("should retry to update lease if conflict is returned as error from the client", func() {
@@ -170,10 +162,7 @@ var _ = Describe("LeaseController", func() {
 				return true, nil, apierrors.NewConflict(schema.GroupResource{}, holderName, fmt.Errorf("error conflict"))
 			})
 
-			leaseController := NewLeaseController(fakeNowFunc, fakeClientMap, 2, testLeaseNamespace)
-			err := leaseController.Sync(holderName)
-
-			Expect(err).To(HaveOccurred())
+			Expect(controller.Sync(holderName)).To(HaveOccurred())
 		})
 	})
 })
